@@ -1,0 +1,158 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="WNS3Connect.Views.ResticWindow"
+        Title="{Binding WindowTitle}"
+        Icon="avares://WNS3Connect/Assets/app.ico"
+        Width="1080" Height="680" MinWidth="760" MinHeight="460"
+        WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource UiAppBg}">
+
+  <Panel>
+    <!-- ===== Bước 1: nhập mật khẩu ===== -->
+    <Border IsVisible="{Binding NeedPassword}" Classes="card" HorizontalAlignment="Center" VerticalAlignment="Center" Width="460" Padding="22,20">
+      <StackPanel Spacing="10">
+        <TextBlock Text="Mở kho restic" FontSize="18" FontWeight="SemiBold" />
+        <TextBlock Classes="muted" TextWrapping="Wrap" Text="{Binding RepoText}" />
+        <TextBlock TextWrapping="Wrap" Text="Nhập mật khẩu kho (key restic trong WebNowBackup → Kho lưu trữ → Xem mật khẩu). App chỉ đọc kho, không ghi hay khóa gì trên cloud." />
+        <TextBox x:Name="PasswordBox" PasswordChar="●" Text="{Binding Password}" PlaceholderText="Mật khẩu kho restic" RevealPassword="False"
+                 AutomationProperties.Name="Mật khẩu kho" KeyDown="PasswordBox_KeyDown" IsEnabled="{Binding !IsBusy}" />
+        <CheckBox IsChecked="{Binding RememberPassword}">
+          <TextBlock TextWrapping="Wrap" Text="Lưu mật khẩu vào tài khoản S3 này (mã hóa, đồng bộ qua WebNow như Secret Key) — lần sau mở không cần nhập" />
+        </CheckBox>
+        <TextBlock Text="{Binding PasswordError}" Foreground="{DynamicResource ThemeDangerBrush}" TextWrapping="Wrap" IsVisible="{Binding PasswordError, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+        <StackPanel Orientation="Horizontal" Spacing="10">
+          <ProgressBar IsIndeterminate="True" IsVisible="{Binding IsBusy}" Width="80" VerticalAlignment="Center" />
+          <TextBlock Classes="muted" Text="{Binding StatusText}" VerticalAlignment="Center" />
+        </StackPanel>
+        <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+          <Button Classes="accent" Content="Mở kho" MinWidth="90" HorizontalContentAlignment="Center" Click="Unlock_Click" IsEnabled="{Binding !IsBusy}" AutomationProperties.Name="Mở kho" />
+          <Button Content="Đóng" MinWidth="90" HorizontalContentAlignment="Center" Click="Close_Click" />
+        </StackPanel>
+      </StackPanel>
+    </Border>
+
+    <!-- ===== Bước 2: duyệt ===== -->
+    <Grid IsVisible="{Binding IsOpen}" ColumnDefinitions="330,6,*" Margin="10">
+      <!-- Danh sách snapshot -->
+      <Border Grid.Column="0" Classes="card">
+        <Grid RowDefinitions="Auto,Auto,*,Auto">
+          <DockPanel Grid.Row="0" Margin="10,10,10,4">
+            <Button DockPanel.Dock="Right" Classes="ghost icon" Click="ReloadSnapshots_Click" ToolTip.Tip="Làm mới danh sách snapshot"><PathIcon Data="{StaticResource IcRefresh}" /></Button>
+            <TextBlock Text="Snapshot" FontWeight="SemiBold" FontSize="15" VerticalAlignment="Center" />
+          </DockPanel>
+          <Panel Grid.Row="1" Margin="10,0,10,8">
+            <TextBox Classes="search" Text="{Binding SnapshotFilter}" PlaceholderText="Lọc: user, database, ngày, id…" AutomationProperties.Name="Lọc snapshot" />
+            <PathIcon Data="{StaticResource IcSearch}" Width="14" Height="14" HorizontalAlignment="Left" Margin="10,0,0,0" Foreground="{DynamicResource UiTextMuted}" IsHitTestVisible="False" />
+          </Panel>
+          <ListBox Grid.Row="2" x:Name="SnapList" ItemsSource="{Binding Snapshots}" SelectedItem="{Binding SelectedSnapshot}" Margin="4,0">
+            <ListBox.ItemTemplate>
+              <DataTemplate>
+                <StackPanel Margin="4,4" Spacing="1">
+                  <StackPanel Orientation="Horizontal" Spacing="8">
+                    <TextBlock Text="{Binding TimeText}" FontWeight="SemiBold" />
+                    <TextBlock Text="{Binding UserText}" Foreground="{DynamicResource AccentFillColorDefaultBrush}" FontWeight="SemiBold" />
+                  </StackPanel>
+                  <TextBlock Text="{Binding KindText}" TextTrimming="CharacterEllipsis" FontSize="12" />
+                  <StackPanel Orientation="Horizontal" Spacing="8">
+                    <TextBlock Classes="muted" FontSize="11" Text="{Binding ShortId}" FontFamily="Consolas,monospace" />
+                    <TextBlock Classes="muted" FontSize="11" Text="{Binding Hostname}" />
+                    <TextBlock Classes="muted" FontSize="11" Text="{Binding SizeText}" />
+                  </StackPanel>
+                </StackPanel>
+              </DataTemplate>
+            </ListBox.ItemTemplate>
+          </ListBox>
+          <StackPanel Grid.Row="3" Margin="10,6,10,10" Spacing="4">
+            <TextBlock Classes="muted" FontSize="12" Text="{Binding SnapshotCountText}" TextWrapping="Wrap" />
+            <Button Classes="ghost" Content="Xóa mật khẩu đã lưu" FontSize="12" Click="Forget_Click" IsVisible="{Binding HasSavedPassword}" Padding="6,2" />
+          </StackPanel>
+        </Grid>
+      </Border>
+
+      <GridSplitter Grid.Column="1" ResizeDirection="Columns" Background="Transparent" />
+
+      <!-- File trong snapshot -->
+      <Border Grid.Column="2" Classes="card">
+        <Grid RowDefinitions="Auto,Auto,Auto,Auto,*">
+          <TextBlock Grid.Row="0" Margin="12,10,12,4" Classes="muted" FontSize="12" Text="{Binding SnapshotInfo}" TextWrapping="Wrap" />
+
+          <DockPanel Grid.Row="1" Margin="8,2,8,4">
+            <Button DockPanel.Dock="Left" Classes="ghost icon" Click="Up_Click" ToolTip.Tip="Lên thư mục cha (Backspace)"><PathIcon Data="{StaticResource IcUp}" /></Button>
+            <Button DockPanel.Dock="Right" Classes="ghost" Content="Tìm" Click="Search_Click" AutomationProperties.Name="Tìm" Margin="4,0,0,0" ToolTip.Tip="Tìm theo tên trong mọi cấp của thư mục đang xem (Ctrl+F, Enter)" />
+            <Panel DockPanel.Dock="Right" Width="240">
+              <TextBox x:Name="SearchBox" Classes="search" Text="{Binding SearchText}" PlaceholderText="Tìm trong thư mục này (Enter)" KeyDown="Search_KeyDown" AutomationProperties.Name="Tìm file" />
+              <PathIcon Data="{StaticResource IcSearch}" Width="14" Height="14" HorizontalAlignment="Left" Margin="10,0,0,0" Foreground="{DynamicResource UiTextMuted}" IsHitTestVisible="False" />
+            </Panel>
+            <ItemsControl ItemsSource="{Binding Crumbs}" VerticalAlignment="Center" Margin="4,0">
+              <ItemsControl.ItemsPanel><ItemsPanelTemplate><StackPanel Orientation="Horizontal" /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+              <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                  <StackPanel Orientation="Horizontal">
+                    <Button Classes="ghost" Padding="6,2" Content="{Binding Name}" Tag="{Binding Path}" Click="Crumb_Click" />
+                    <TextBlock Text="›" Classes="muted" VerticalAlignment="Center" IsVisible="{Binding !IsLast}" />
+                  </StackPanel>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </DockPanel>
+
+          <DockPanel Grid.Row="2" Margin="8,0,12,8">
+          <TextBlock DockPanel.Dock="Right" Classes="muted" FontSize="12" Text="{Binding StatusText}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+          <StackPanel Orientation="Horizontal" Spacing="4">
+            <Button Classes="accent" x:Name="RestoreBtn" AutomationProperties.Name="Khôi phục" Click="Restore_Click" IsEnabled="False" ToolTip.Tip="Tải các mục đã chọn về máy (Ctrl+D)">
+              <StackPanel Orientation="Horizontal" Spacing="7"><PathIcon Data="{StaticResource IcDownload}" /><TextBlock Text="Tải về máy…" /></StackPanel>
+            </Button>
+            <Button Classes="ghost" AutomationProperties.Name="Tải cả thư mục" Click="RestoreAll_Click" ToolTip.Tip="Tải toàn bộ thư mục đang xem về máy">
+              <StackPanel Orientation="Horizontal" Spacing="7"><PathIcon Data="{StaticResource IcFolder}" Foreground="#F5B83D" /><TextBlock Text="Tải cả thư mục này…" /></StackPanel>
+            </Button>
+            <Button Classes="ghost" x:Name="OpenFileBtn" AutomationProperties.Name="Mở file" Click="OpenFile_Click" IsEnabled="False" ToolTip.Tip="Mở file bằng ứng dụng mặc định (Enter)">
+              <StackPanel Orientation="Horizontal" Spacing="7"><PathIcon Data="{StaticResource IcOpen}" /><TextBlock Text="Mở" /></StackPanel>
+            </Button>
+          </StackPanel>
+          </DockPanel>
+
+          <Border Grid.Row="3" Background="{DynamicResource UiHeaderBg}" BorderBrush="{DynamicResource UiLine}" BorderThickness="0,1">
+            <Grid ColumnDefinitions="*,100,80,160" Margin="4,0">
+              <TextBlock Grid.Column="0" Classes="cell" Text="Tên" Margin="36,8,10,8" FontWeight="SemiBold" />
+              <TextBlock Grid.Column="1" Classes="cell" Text="Kích thước" HorizontalAlignment="Right" FontWeight="SemiBold" />
+              <TextBlock Grid.Column="2" Classes="cell" Text="Loại" Margin="10,0" FontWeight="SemiBold" />
+              <TextBlock Grid.Column="3" Classes="cell" Text="Sửa lần cuối" FontWeight="SemiBold" />
+            </Grid>
+          </Border>
+
+          <Panel Grid.Row="4">
+            <ListBox x:Name="EntryList" Classes="grid" ItemsSource="{Binding Entries}" SelectionMode="Multiple"
+                     DoubleTapped="EntryList_DoubleTapped" KeyDown="EntryList_KeyDown" SelectionChanged="EntryList_SelectionChanged">
+              <ListBox.ContextMenu>
+                <ContextMenu>
+                  <MenuItem Header="Mở" Click="OpenFile_Click" />
+                  <MenuItem Header="Tải về máy…" Click="Restore_Click" />
+                  <MenuItem Header="Tải cả thư mục này…" Click="RestoreAll_Click" />
+                  <Separator />
+                  <MenuItem Header="Copy đường dẫn" Click="CopyPath_Click" />
+                </ContextMenu>
+              </ListBox.ContextMenu>
+              <ListBox.ItemTemplate>
+                <DataTemplate>
+                  <Grid ColumnDefinitions="*,100,80,160" Background="Transparent" ToolTip.Tip="{Binding Extra}">
+                    <StackPanel Grid.Column="0" Orientation="Horizontal" Margin="10,0,0,0">
+                      <PathIcon Width="16" Height="16" Data="{StaticResource IcFolder}" Foreground="{Binding IconColor}" IsVisible="{Binding IsFolder}" />
+                      <PathIcon Width="16" Height="16" Data="{StaticResource IcFile}" Foreground="{Binding IconColor}" IsVisible="{Binding !IsFolder}" />
+                      <TextBlock Classes="cell" Text="{Binding Display}" Margin="10,0" />
+                      <TextBlock Classes="cell muted" Text="{Binding Extra}" FontSize="12" />
+                    </StackPanel>
+                    <TextBlock Grid.Column="1" Classes="cell" Text="{Binding SizeText}" HorizontalAlignment="Right" />
+                    <TextBlock Grid.Column="2" Classes="cell muted" Text="{Binding TypeText}" FontSize="12" Margin="10,0" />
+                    <TextBlock Grid.Column="3" Classes="cell muted" Text="{Binding ModifiedText}" FontSize="12" />
+                  </Grid>
+                </DataTemplate>
+              </ListBox.ItemTemplate>
+            </ListBox>
+            <ProgressBar Classes="thin" IsIndeterminate="True" IsVisible="{Binding IsBusy}" VerticalAlignment="Top" />
+            <TextBlock IsVisible="{Binding IsEmptyDir}" Text="Thư mục trống" Classes="muted" HorizontalAlignment="Center" VerticalAlignment="Center" IsHitTestVisible="False" />
+          </Panel>
+        </Grid>
+      </Border>
+    </Grid>
+  </Panel>
+</Window>

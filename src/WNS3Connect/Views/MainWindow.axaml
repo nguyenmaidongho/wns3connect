@@ -1,0 +1,387 @@
+<ui:FAAppWindow xmlns="https://github.com/avaloniaui"
+        xmlns:ui="using:FluentAvalonia.UI.Windowing"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:WNS3Connect.ViewModels"
+        xmlns:chrome="using:Avalonia.Controls.Chrome"
+        x:Class="WNS3Connect.Views.MainWindow"
+        Title="{Binding WindowTitle}"
+        Icon="avares://WNS3Connect/Assets/app.ico"
+        MinWidth="820" MinHeight="520">
+
+  <ui:FAAppWindow.Styles>
+    <Style Selector="TreeView.nav TreeViewItem">
+      <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}" />
+    </Style>
+  </ui:FAAppWindow.Styles>
+
+  <Grid RowDefinitions="Auto,*,6,210" x:Name="RootGrid">
+
+    <!-- ===== Thanh tiêu đề: logo, menu, tài khoản WebNow ===== -->
+    <!-- Vùng kéo cửa sổ (Avalonia 12: phải đánh dấu rõ, nếu không cả thanh tiêu đề là nội dung, không kéo được).
+         Đặt phía sau, không bọc nút/menu, để các nút vẫn bấm được. -->
+    <Border Grid.Row="0" Height="48" VerticalAlignment="Top" Background="Transparent" chrome:WindowDecorationProperties.ElementRole="TitleBar" />
+    <DockPanel Grid.Row="0" Margin="14,0,150,0" Height="48">
+      <Button DockPanel.Dock="Right" Classes="pill" Click="Cloud_Click" AutomationProperties.Name="Tài khoản WebNow"
+              ToolTip.Tip="Tài khoản WebNow (dùng chung WNTerm): backup / đồng bộ danh sách tài khoản S3">
+        <StackPanel Orientation="Horizontal" Spacing="7">
+          <PathIcon Data="{StaticResource IcCloudCheck}" Width="15" Height="15" Foreground="SeaGreen" IsVisible="{Binding IsCloudLoggedIn}" />
+          <PathIcon Data="{StaticResource IcCloud}" Width="15" Height="15" Foreground="{DynamicResource UiTextMuted}" IsVisible="{Binding !IsCloudLoggedIn}" />
+          <TextBlock Text="{Binding CloudText}" VerticalAlignment="Center" />
+        </StackPanel>
+      </Button>
+      <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+        <Button Classes="ghost icon" Click="ToggleSidebar_Click" AutomationProperties.Name="Ẩn hiện sidebar" ToolTip.Tip="Ẩn / hiện danh sách tài khoản (Ctrl+B)" Margin="-8,0,0,0">
+          <PathIcon Data="{StaticResource IcMenu}" />
+        </Button>
+        <Image Source="avares://WNS3Connect/Assets/favicon.png" Width="22" Height="22" />
+        <TextBlock Text="WNS3Connect" FontSize="15" FontWeight="Bold" VerticalAlignment="Center" />
+        <Menu Classes="top" Margin="8,0,0,0" VerticalAlignment="Center">
+          <MenuItem Header="Tài khoản" x:Name="AccountsMenu" />
+          <MenuItem Header="Bucket">
+            <MenuItem Header="Tạo bucket mới…" Click="NewBucket_Click" />
+            <MenuItem Header="Thêm bucket ngoài…" Click="AddExternal_Click" />
+            <MenuItem Header="Xóa / bỏ bucket đang mở…" Click="DeleteBucket_Click" />
+          </MenuItem>
+          <MenuItem Header="File">
+            <MenuItem Header="Tải lên file…" Click="UploadFiles_Click" InputGesture="Ctrl+U" />
+            <MenuItem Header="Tải lên thư mục…" Click="UploadFolder_Click" />
+            <MenuItem Header="Tải về…" Click="Download_Click" InputGesture="Ctrl+D" />
+            <MenuItem Header="Mở" Click="Open_Click" InputGesture="Enter" />
+            <MenuItem Header="Xóa" Click="Delete_Click" InputGesture="Delete" />
+            <Separator />
+            <MenuItem Header="Thư mục mới…" Click="NewFolder_Click" InputGesture="Ctrl+Shift+N" />
+            <MenuItem Header="Copy link tải (7 ngày)" Click="CopyPresigned_Click" />
+            <MenuItem Header="Copy đường dẫn s3://" Click="CopyS3Path_Click" />
+            <MenuItem Header="Mở kho restic tại thư mục này…" Click="OpenRestic_Click" />
+            <Separator />
+            <MenuItem Header="Làm mới" Click="Refresh_Click" InputGesture="F5" />
+          </MenuItem>
+          <MenuItem Header="Công cụ">
+            <MenuItem Header="Số file truyền song song" x:Name="ParallelMenu" />
+            <MenuItem Header="Giao diện">
+              <MenuItem Header="Sáng" Click="ThemeLight_Click" />
+              <MenuItem Header="Tối" Click="ThemeDark_Click" />
+              <MenuItem Header="Theo Windows" Click="ThemeSystem_Click" />
+            </MenuItem>
+            <Separator />
+            <MenuItem Header="Mở thư mục dữ liệu" Click="OpenDataDir_Click" />
+            <MenuItem Header="Xóa cache kho restic" Click="ClearResticCache_Click" />
+          </MenuItem>
+          <MenuItem Header="Trợ giúp">
+            <MenuItem Header="Phím tắt" Click="Shortcuts_Click" />
+            <MenuItem Header="Giới thiệu" Click="About_Click" />
+          </MenuItem>
+        </Menu>
+      </StackPanel>
+    </DockPanel>
+
+    <!-- ===== Sidebar + nội dung ===== -->
+    <Grid Grid.Row="1" x:Name="BodyGrid" ColumnDefinitions="230,6,*" Margin="10,4,10,0">
+
+      <!-- Sidebar: tài khoản → bucket -->
+      <DockPanel Grid.Column="0">
+        <DockPanel DockPanel.Dock="Top" Margin="6,2,0,2">
+          <Button DockPanel.Dock="Right" Classes="ghost icon" Click="AddAccount_Click" ToolTip.Tip="Thêm tài khoản S3">
+            <PathIcon Data="{StaticResource IcPlus}" />
+          </Button>
+          <TextBlock Classes="section" Text="TÀI KHOẢN S3" VerticalAlignment="Center" />
+        </DockPanel>
+
+          <TreeView x:Name="NavTree" Classes="nav" ItemsSource="{Binding AccountNodes}" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+            <TreeView.DataTemplates>
+              <TreeDataTemplate DataType="vm:AccountNode" ItemsSource="{Binding Buckets}">
+                <Grid ColumnDefinitions="Auto,*,Auto" Background="Transparent" Tapped="AccountRow_Tapped" Margin="0,1">
+                  <Grid.ContextMenu>
+                    <ContextMenu>
+                      <MenuItem Header="Làm mới danh sách bucket" Click="AccountRefresh_Click" />
+                      <MenuItem Header="Tạo bucket mới…" Click="AccountNewBucket_Click" />
+                      <MenuItem Header="Thêm bucket ngoài…" Click="AccountAddExternal_Click" />
+                      <Separator />
+                      <MenuItem Header="Sửa tài khoản…" Click="AccountEdit_Click" />
+                      <MenuItem Header="Xóa tài khoản…" Click="AccountDelete_Click" />
+                    </ContextMenu>
+                  </Grid.ContextMenu>
+                  <Border Grid.Column="0" Classes="avatar" Classes.current="{Binding IsCurrent}" VerticalAlignment="Top" Margin="0,1,0,0">
+                    <TextBlock Text="{Binding Initial}" FontWeight="Bold" FontSize="12" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                  </Border>
+                  <StackPanel Grid.Column="1" Margin="7,0,2,0" VerticalAlignment="Center" ToolTip.Tip="{Binding Subtitle}">
+                    <TextBlock Text="{Binding Name}" FontWeight="SemiBold" FontSize="12.5" TextTrimming="CharacterEllipsis" />
+                    <TextBlock Text="{Binding Subtitle}" Classes="muted" FontSize="11" TextTrimming="CharacterEllipsis" />
+                    <TextBlock Text="{Binding Status}" IsVisible="{Binding HasStatus}" FontSize="11.5" Foreground="{DynamicResource ThemeDangerBrush}" TextWrapping="Wrap" Margin="0,2,0,0" />
+                  </StackPanel>
+                  <ProgressBar Grid.Column="2" IsIndeterminate="True" IsVisible="{Binding IsLoading}" Width="16" MinWidth="16" Height="3" MinHeight="3" VerticalAlignment="Center" Margin="0,0,6,0" />
+                </Grid>
+              </TreeDataTemplate>
+              <DataTemplate DataType="vm:BucketNode">
+                <Border Classes="bucketRow" Classes.current="{Binding IsCurrent}" Tapped="BucketRow_Tapped" Margin="-10,0,2,0">
+                  <Border.ContextMenu>
+                    <ContextMenu>
+                      <MenuItem Header="Mở" Click="BucketOpen_Click" />
+                      <MenuItem Header="Copy tên bucket" Click="BucketCopy_Click" />
+                      <Separator />
+                      <MenuItem Header="Xóa / bỏ bucket…" Click="BucketDelete_Click" />
+                    </ContextMenu>
+                  </Border.ContextMenu>
+                  <StackPanel Orientation="Horizontal" Spacing="8">
+                    <PathIcon Data="{StaticResource IcBucket}" Width="13" Height="13" Foreground="#E8833A" />
+                    <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" FontSize="12.5" ToolTip.Tip="{Binding Name}" />
+                    <TextBlock Text="ngoài" Classes="muted" FontSize="10.5" VerticalAlignment="Center" IsVisible="{Binding IsExternal}" />
+                  </StackPanel>
+                </Border>
+              </DataTemplate>
+            </TreeView.DataTemplates>
+          </TreeView>
+      </DockPanel>
+
+      <GridSplitter Grid.Column="1" ResizeDirection="Columns" />
+
+      <!-- Nội dung -->
+      <Border Grid.Column="2" Classes="card">
+        <Grid RowDefinitions="Auto,Auto,Auto,Auto,*">
+
+          <!-- Hàng 1: điều hướng + breadcrumb + tìm -->
+          <Grid Grid.Row="0" ColumnDefinitions="Auto,*,220,Auto" Margin="8,8,8,4">
+            <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="2">
+              <Button Classes="ghost icon" Click="Back_Click" IsEnabled="{Binding CanGoBack}" ToolTip.Tip="Quay lại (Alt+←)"><PathIcon Data="{StaticResource IcBack}" /></Button>
+              <Button Classes="ghost icon" Click="Forward_Click" IsEnabled="{Binding CanGoForward}" ToolTip.Tip="Tới (Alt+→)"><PathIcon Data="{StaticResource IcForward}" /></Button>
+              <Button Classes="ghost icon" Click="Up_Click" IsEnabled="{Binding HasBucket}" ToolTip.Tip="Lên một cấp (Backspace)"><PathIcon Data="{StaticResource IcUp}" /></Button>
+            </StackPanel>
+
+            <Panel Grid.Column="1" Margin="6,0">
+              <Border x:Name="CrumbBar" Background="Transparent" DoubleTapped="CrumbBar_DoubleTapped" ToolTip.Tip="Bấm đúp (hoặc Ctrl+L) để gõ đường dẫn">
+                <DockPanel>
+                  <Button DockPanel.Dock="Right" Classes="ghost icon" Click="EditPath_Click" ToolTip.Tip="Gõ đường dẫn (Ctrl+L)" Opacity="0.7">
+                    <PathIcon Data="{StaticResource IcEdit}" Width="13" Height="13" />
+                  </Button>
+                  <ScrollViewer HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Disabled">
+                    <ItemsControl ItemsSource="{Binding Crumbs}">
+                      <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate><StackPanel Orientation="Horizontal" /></ItemsPanelTemplate>
+                      </ItemsControl.ItemsPanel>
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                          <StackPanel Orientation="Horizontal">
+                            <PathIcon Data="{StaticResource IcChevron}" Width="12" Height="12" Foreground="{DynamicResource UiTextMuted}" IsVisible="{Binding !IsBucket}" Margin="1,0" />
+                            <Button Classes="crumb" Classes.last="{Binding IsLast}" Click="Crumb_Click">
+                              <StackPanel Orientation="Horizontal" Spacing="6">
+                                <PathIcon Data="{StaticResource IcBucket}" Width="13" Height="13" Foreground="#E8833A" IsVisible="{Binding IsBucket}" />
+                                <TextBlock Text="{Binding Label}" />
+                              </StackPanel>
+                            </Button>
+                          </StackPanel>
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                  </ScrollViewer>
+                </DockPanel>
+              </Border>
+              <TextBox x:Name="PathBox" IsVisible="False" KeyDown="PathBox_KeyDown" LostFocus="PathBox_LostFocus" VerticalContentAlignment="Center"
+                       PlaceholderText="/thu-muc/con/  hoặc  ten-bucket/thu-muc/" />
+            </Panel>
+
+            <Panel Grid.Column="2">
+              <TextBox x:Name="FilterBox" Classes="search" Text="{Binding FilterText}" PlaceholderText="Lọc theo tên (Ctrl+F)" />
+              <PathIcon Data="{StaticResource IcSearch}" Width="14" Height="14" HorizontalAlignment="Left" Margin="10,0,0,0" Foreground="{DynamicResource UiTextMuted}" IsHitTestVisible="False" />
+            </Panel>
+            <Button Grid.Column="3" Classes="ghost icon" Click="Refresh_Click" ToolTip.Tip="Làm mới (F5)" Margin="4,0,0,0"><PathIcon Data="{StaticResource IcRefresh}" /></Button>
+          </Grid>
+
+          <!-- Hàng 2: thao tác -->
+          <DockPanel Grid.Row="1" Margin="8,2,12,8">
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center" Spacing="6">
+              <Button Classes="ghost" Click="StopLoading_Click" IsVisible="{Binding IsLoading}" ToolTip.Tip="Dừng tải danh sách" Padding="6,2">
+                <PathIcon Data="{StaticResource IcStop}" Width="10" Height="10" />
+              </Button>
+              <TextBlock Text="{Binding StatusText}" Classes="muted" VerticalAlignment="Center" FontSize="12" />
+            </StackPanel>
+            <StackPanel Orientation="Horizontal" Spacing="4" IsEnabled="{Binding HasBucket}">
+              <Button Classes="accent" AutomationProperties.Name="Tải lên" ToolTip.Tip="Tải lên (Ctrl+U) — hoặc kéo thả file vào danh sách">
+                <StackPanel Orientation="Horizontal" Spacing="7"><PathIcon Data="{StaticResource IcUpload}" /><TextBlock Text="Tải lên" /><TextBlock Text="▾" FontSize="10" VerticalAlignment="Center" /></StackPanel>
+                <Button.Flyout>
+                  <MenuFlyout Placement="BottomEdgeAlignedLeft">
+                    <MenuItem Header="Tải lên file…" Click="UploadFiles_Click" />
+                    <MenuItem Header="Tải lên thư mục…" Click="UploadFolder_Click" />
+                  </MenuFlyout>
+                </Button.Flyout>
+              </Button>
+              <Button Classes="ghost" Click="NewFolder_Click" ToolTip.Tip="Thư mục mới (Ctrl+Shift+N)">
+                <StackPanel Orientation="Horizontal" Spacing="7"><PathIcon Data="{StaticResource IcFolderPlus}" Foreground="#F5B83D" /><TextBlock Text="Thư mục mới" /></StackPanel>
+              </Button>
+              <Border Width="1" Background="{DynamicResource UiLine}" Margin="6,6" />
+              <Button Classes="ghost" x:Name="DownloadBtn" AutomationProperties.Name="Tải về" Click="Download_Click" IsEnabled="False" ToolTip.Tip="Tải về (Ctrl+D)">
+                <StackPanel Orientation="Horizontal" Spacing="7"><PathIcon Data="{StaticResource IcDownload}" Foreground="{DynamicResource AccentFillColorDefaultBrush}" /><TextBlock Text="Tải về" /></StackPanel>
+              </Button>
+              <Button Classes="ghost" x:Name="OpenBtn" AutomationProperties.Name="Mở" Click="Open_Click" IsEnabled="False" ToolTip.Tip="Mở (Enter)">
+                <StackPanel Orientation="Horizontal" Spacing="7"><PathIcon Data="{StaticResource IcOpen}" /><TextBlock Text="Mở" /></StackPanel>
+              </Button>
+              <Button Classes="ghost" x:Name="LinkBtn" AutomationProperties.Name="Copy link" Click="CopyPresigned_Click" IsEnabled="False" ToolTip.Tip="Copy link tải file (hết hạn sau 7 ngày)">
+                <StackPanel Orientation="Horizontal" Spacing="7"><PathIcon Data="{StaticResource IcLink}" /><TextBlock Text="Copy link" /></StackPanel>
+              </Button>
+              <Button Classes="ghost" x:Name="DeleteBtn" AutomationProperties.Name="Xóa" Click="Delete_Click" IsEnabled="False" ToolTip.Tip="Xóa (Delete)">
+                <StackPanel Orientation="Horizontal" Spacing="7"><PathIcon Data="{StaticResource IcDelete}" Foreground="{DynamicResource ThemeDangerBrush}" /><TextBlock Text="Xóa" /></StackPanel>
+              </Button>
+            </StackPanel>
+          </DockPanel>
+
+          <!-- Thư mục là kho restic (WebNowBackup) -->
+          <Border Grid.Row="2" IsVisible="{Binding ShowResticBar}" Margin="8,0,8,8" Padding="12,8" CornerRadius="6" Background="{DynamicResource UiAccentSoft}">
+            <DockPanel>
+              <Button DockPanel.Dock="Right" Classes="accent" Click="OpenRestic_Click" AutomationProperties.Name="Mở kho restic" Content="Mở kho restic…" />
+              <TextBlock VerticalAlignment="Center" TextWrapping="Wrap" Margin="0,0,12,0" Text="{Binding ResticBarText}" />
+            </DockPanel>
+          </Border>
+
+          <!-- Hàng 3: tiêu đề cột -->
+          <Border Grid.Row="3" Background="{DynamicResource UiHeaderBg}" BorderBrush="{DynamicResource UiLine}" BorderThickness="0,1">
+            <Grid ColumnDefinitions="*,100,80,160,120" Margin="4,0">
+              <Button Grid.Column="0" Classes="header" Tag="Name" Click="Header_Click" Padding="36,8,10,8"><TextBlock x:Name="HName" Text="Tên ▲" /></Button>
+              <Button Grid.Column="1" Classes="header" Tag="Size" Click="Header_Click" HorizontalContentAlignment="Right"><TextBlock x:Name="HSize" Text="Kích thước" /></Button>
+              <Button Grid.Column="2" Classes="header" Tag="Type" Click="Header_Click"><TextBlock x:Name="HType" Text="Loại" /></Button>
+              <Button Grid.Column="3" Classes="header" Tag="Modified" Click="Header_Click"><TextBlock x:Name="HModified" Text="Sửa lần cuối" /></Button>
+              <Button Grid.Column="4" Classes="header" Tag="StorageClass" Click="Header_Click"><TextBlock x:Name="HStorageClass" Text="Storage class" /></Button>
+            </Grid>
+          </Border>
+
+          <!-- Hàng 4: danh sách (ảo hóa) -->
+          <Panel Grid.Row="4">
+            <ListBox x:Name="FileList" Classes="grid" ItemsSource="{Binding Items}" SelectionMode="Multiple"
+                     DoubleTapped="FileList_DoubleTapped" KeyDown="FileList_KeyDown" SelectionChanged="FileList_SelectionChanged">
+              <ListBox.ContextMenu>
+                <ContextMenu>
+                  <MenuItem Header="Mở" Click="Open_Click" />
+                  <MenuItem Header="Tải về…" Click="Download_Click" />
+                  <MenuItem Header="Copy link tải (7 ngày)" Click="CopyPresigned_Click" />
+                  <MenuItem Header="Copy đường dẫn s3://" Click="CopyS3Path_Click" />
+                  <MenuItem Header="Mở như kho restic…" Click="OpenResticSelected_Click" />
+                  <Separator />
+                  <MenuItem Header="Tải lên file…" Click="UploadFiles_Click" />
+                  <MenuItem Header="Thư mục mới…" Click="NewFolder_Click" />
+                  <MenuItem Header="Làm mới" Click="Refresh_Click" />
+                  <Separator />
+                  <MenuItem Header="Xóa" Click="Delete_Click" />
+                </ContextMenu>
+              </ListBox.ContextMenu>
+              <ListBox.ItemTemplate>
+                <DataTemplate>
+                  <Grid ColumnDefinitions="*,100,80,160,120" Background="Transparent" PointerEntered="Row_PointerEntered">
+                    <StackPanel Grid.Column="0" Orientation="Horizontal" Margin="10,0,0,0">
+                      <PathIcon Width="16" Height="16" Data="{StaticResource IcFolder}" Foreground="{Binding IconColor}" IsVisible="{Binding IsFolder}" />
+                      <PathIcon Width="16" Height="16" Data="{StaticResource IcFile}" Foreground="{Binding IconColor}" IsVisible="{Binding !IsFolder}" />
+                      <TextBlock Classes="cell" Text="{Binding Name}" Margin="10,0" />
+                    </StackPanel>
+                    <TextBlock Grid.Column="1" Classes="cell" Text="{Binding SizeText}" HorizontalAlignment="Right" />
+                    <TextBlock Grid.Column="2" Classes="cell muted" Text="{Binding TypeText}" FontSize="12" />
+                    <TextBlock Grid.Column="3" Classes="cell muted" Text="{Binding LastModifiedText}" FontSize="12" />
+                    <TextBlock Grid.Column="4" Classes="cell muted" Text="{Binding StorageClass}" FontSize="12" />
+                  </Grid>
+                </DataTemplate>
+              </ListBox.ItemTemplate>
+            </ListBox>
+            <ProgressBar Classes="thin" IsIndeterminate="True" IsVisible="{Binding IsLoading}" VerticalAlignment="Top" />
+
+            <!-- Trạng thái rỗng -->
+            <StackPanel IsVisible="{Binding IsEmptyFolder}" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="8" IsHitTestVisible="False">
+              <PathIcon Data="{StaticResource IcEmpty}" Width="40" Height="40" Foreground="{DynamicResource UiLine}" HorizontalAlignment="Center" />
+              <TextBlock Text="Thư mục trống" HorizontalAlignment="Center" FontWeight="SemiBold" />
+              <TextBlock Text="Kéo thả file / thư mục vào đây để tải lên" Classes="muted" HorizontalAlignment="Center" />
+            </StackPanel>
+            <StackPanel IsVisible="{Binding HasNoAccounts}" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="10">
+              <PathIcon Data="{StaticResource IcBucket}" Width="40" Height="40" Foreground="{DynamicResource UiLine}" HorizontalAlignment="Center" />
+              <TextBlock Text="Chưa có tài khoản S3" HorizontalAlignment="Center" FontWeight="SemiBold" />
+              <Button Classes="accent" HorizontalAlignment="Center" Click="AddAccount_Click" Content="Thêm tài khoản" />
+            </StackPanel>
+
+            <Border x:Name="DropHint" IsVisible="False" Margin="8" CornerRadius="8" BorderThickness="2" BorderBrush="{DynamicResource AccentFillColorDefaultBrush}" Background="{DynamicResource UiAccentSoft}" Opacity="0.92" IsHitTestVisible="False">
+              <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="8">
+                <PathIcon Data="{StaticResource IcUpload}" Width="34" Height="34" Foreground="{DynamicResource AccentFillColorDefaultBrush}" />
+                <TextBlock Text="Thả để tải lên thư mục này" FontSize="15" FontWeight="SemiBold" Foreground="{DynamicResource AccentFillColorDefaultBrush}" />
+              </StackPanel>
+            </Border>
+          </Panel>
+        </Grid>
+      </Border>
+    </Grid>
+
+    <GridSplitter Grid.Row="2" ResizeDirection="Rows" x:Name="BottomSplitter" />
+
+    <!-- ===== Tác vụ / Thuộc tính / Nhật ký ===== -->
+    <Border Grid.Row="3" Classes="card" Margin="10,0,10,10" x:Name="BottomCard">
+      <Grid RowDefinitions="Auto,*">
+        <DockPanel Grid.Row="0" Margin="6,4,6,0">
+          <Button DockPanel.Dock="Right" Classes="ghost icon" Click="ToggleBottom_Click" ToolTip.Tip="Thu gọn / mở rộng">
+            <TextBlock x:Name="ToggleBottomText" Text="▾" FontSize="12" />
+          </Button>
+          <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="2" x:Name="TaskTools" VerticalAlignment="Center">
+            <ToggleButton x:Name="FRunning" Classes="chip" Content="Đang chạy" Click="TaskFilter_Click" Tag="Running" />
+            <ToggleButton x:Name="FQueued" Classes="chip" Content="Chờ" Click="TaskFilter_Click" Tag="Queued" />
+            <ToggleButton x:Name="FDone" Classes="chip" Content="Xong" Click="TaskFilter_Click" Tag="Done" />
+            <ToggleButton x:Name="FStopped" Classes="chip" Content="Đã dừng" Click="TaskFilter_Click" Tag="Stopped" />
+            <ToggleButton x:Name="FFailed" Classes="chip" Content="Lỗi" Click="TaskFilter_Click" Tag="Failed" />
+            <ToggleButton x:Name="FAll" Classes="chip" Content="Tất cả" Click="TaskFilter_Click" Tag="All" />
+            <Border Width="1" Background="{DynamicResource UiLine}" Margin="6,5" />
+            <Button Classes="ghost icon" Click="StartAll_Click" ToolTip.Tip="Chạy lại tác vụ đã dừng / lỗi"><PathIcon Data="{StaticResource IcPlay}" Foreground="SeaGreen" /></Button>
+            <Button Classes="ghost icon" Click="StopAll_Click" ToolTip.Tip="Dừng tất cả"><PathIcon Data="{StaticResource IcStop}" Foreground="{DynamicResource AccentFillColorDefaultBrush}" /></Button>
+            <Button Classes="ghost icon" Click="CancelAll_Click" ToolTip.Tip="Hủy tất cả"><PathIcon Data="{StaticResource IcCancel}" Foreground="{DynamicResource ThemeDangerBrush}" /></Button>
+            <Button Classes="ghost" Click="ClearDone_Click" Content="Dọn mục xong" FontSize="12" />
+          </StackPanel>
+          <TabStrip x:Name="BottomTabs" SelectionChanged="BottomTabs_SelectionChanged" SelectedIndex="0">
+            <TabStripItem Content="Tác vụ" />
+            <TabStripItem Content="Thuộc tính" />
+            <TabStripItem Content="Nhật ký" />
+          </TabStrip>
+        </DockPanel>
+
+        <!-- Tác vụ -->
+        <Grid Grid.Row="1" x:Name="TasksPane" RowDefinitions="Auto,*">
+          <Border Grid.Row="0" BorderBrush="{DynamicResource UiLine}" BorderThickness="0,1" Background="{DynamicResource UiHeaderBg}">
+            <Grid ColumnDefinitions="*,90,50,150,170,90" Margin="4,0">
+              <TextBlock Grid.Column="0" Text="Tác vụ" Margin="10,6" Classes="muted h" FontSize="12" />
+              <TextBlock Grid.Column="1" Text="Kích thước" Margin="10,6" Classes="muted h" FontSize="12" />
+              <TextBlock Grid.Column="2" Text="%" Margin="10,6" Classes="muted h" FontSize="12" />
+              <TextBlock Grid.Column="3" Text="Tiến độ" Margin="10,6" Classes="muted h" FontSize="12" />
+              <TextBlock Grid.Column="4" Text="Trạng thái" Margin="10,6" Classes="muted h" FontSize="12" />
+              <TextBlock Grid.Column="5" Text="Tốc độ" Margin="10,6" Classes="muted h" FontSize="12" />
+            </Grid>
+          </Border>
+          <ListBox Grid.Row="1" x:Name="TaskList" Classes="grid" ItemsSource="{Binding VisibleTasks}" SelectionMode="Multiple">
+            <ListBox.ContextMenu>
+              <ContextMenu>
+                <MenuItem Header="Chạy lại" Click="TaskStart_Click" />
+                <MenuItem Header="Dừng" Click="TaskStop_Click" />
+                <MenuItem Header="Mở thư mục chứa file" Click="TaskReveal_Click" />
+                <MenuItem Header="Xóa khỏi danh sách" Click="TaskRemove_Click" />
+              </ContextMenu>
+            </ListBox.ContextMenu>
+            <ListBox.ItemTemplate>
+              <DataTemplate>
+                <Grid ColumnDefinitions="*,90,50,150,170,90" ToolTip.Tip="{Binding LocalPath}">
+                  <TextBlock Grid.Column="0" Classes="cell" Text="{Binding Title}" />
+                  <TextBlock Grid.Column="1" Classes="cell muted" Text="{Binding SizeText}" FontSize="12" />
+                  <TextBlock Grid.Column="2" Classes="cell" Text="{Binding PercentText}" FontSize="12" />
+                  <ProgressBar Grid.Column="3" Classes="task" Value="{Binding Percent}" Maximum="100" Margin="10,0" MinWidth="0" VerticalAlignment="Center" />
+                  <TextBlock Grid.Column="4" Classes="cell muted" Text="{Binding StatusText}" ToolTip.Tip="{Binding StatusText}" FontSize="12" />
+                  <TextBlock Grid.Column="5" Classes="cell muted" Text="{Binding SpeedText}" FontSize="12" />
+                </Grid>
+              </DataTemplate>
+            </ListBox.ItemTemplate>
+          </ListBox>
+          <TextBlock Grid.Row="1" Text="{Binding TaskSummary}" Classes="muted" FontSize="12" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="12,6" IsHitTestVisible="False" />
+        </Grid>
+
+        <!-- Thuộc tính -->
+        <ScrollViewer Grid.Row="1" x:Name="PropsPane" IsVisible="False">
+          <SelectableTextBlock Text="{Binding PropertiesText}" Margin="14,10" FontFamily="Cascadia Mono,Consolas,monospace" FontSize="12.5" TextWrapping="Wrap" />
+        </ScrollViewer>
+
+        <!-- Nhật ký -->
+        <ListBox Grid.Row="1" x:Name="LogPane" IsVisible="False" ItemsSource="{Binding EventLog}" Classes="grid">
+          <ListBox.ItemTemplate>
+            <DataTemplate>
+              <SelectableTextBlock Text="{Binding}" Margin="10,2" FontFamily="Cascadia Mono,Consolas,monospace" FontSize="12" TextWrapping="Wrap" />
+            </DataTemplate>
+          </ListBox.ItemTemplate>
+        </ListBox>
+      </Grid>
+    </Border>
+  </Grid>
+</ui:FAAppWindow>
